@@ -1,0 +1,193 @@
+---
+title: "Breast_Cancer_Logistic"
+output: rmarkdown::github_document
+---
+
+**Problem Statement:**
+
+The study is focused on **"Examining the Influence of Smoothness, Texture, Concave Points, and Area on Breast Cancer Detection."**
+
+**Data Summary:**
+
+The Breast Cancer Wisconsin dataset consists of 569 patient test results obtained from a digitized image of a fine needle aspirate (FNA) of the breast. Each entry in the dataset provides information about the radius, texture, perimeter, area, smoothness, compactness, concavity, concave points, symmetry, fractal dimension, and diagnosis of the patient. The features are categorized into three classes: mean, standard error, and worst (which represents the mean of the three largest values), resulting in a total of 30 features and 1 diagnosis feature. Out of 31 features we need 5 important variables.
+
+Initially, we selected the 10 variables with the worst class designation. From those, we further narrowed down our selection to 4 predictor variables using various methods such as examining Pearson correlations, forward and backward variable elimination, and VIF values. We now have a set of 4 predictor variables and 1 outcome variable for our analysis. It is important to note that we verified the absence of missing values and outliers in the selected variables. Below are the summary statistics of the variables we have chosen. All the factors that are used to predict the outcome can be classified as either categories or numerical values, while the outcome itself is a binary category.
+
+```{r setup,  message=FALSE,warning=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(dplyr)
+library(tidyverse)
+library(ggplot2)
+library(knitr)
+library(kableExtra)
+library(car)
+```
+
+```{r warning=FALSE, message=FALSE}
+#Import dataset 
+b_cancer <- read.csv("data.csv")
+b_cancer <- subset(b_cancer,select = -c(id,X))
+b_cancer$diagnosis <- factor(b_cancer$diagnosis,levels = c("B","M"))
+# Checking missing values
+b_cancer.missing <- b_cancer %>% summarise_all(~sum(is.na(.)))
+kable(b_cancer.missing)
+
+#selecting variables
+b_cancer1 <- b_cancer[,22:31] 
+b_cancer1$diagnosis <- b_cancer$diagnosis
+
+
+#pearson correlation
+b_cancer2 <- b_cancer1
+b_cancer2$diagnosis <- ifelse(b_cancer2$diagnosis=="M",1,0)
+b_cancer2$diagnosis <- as.integer(b_cancer2$diagnosis)
+cor_tb <- round(cor(b_cancer2,method = "pearson"),digits = 4)
+cor_tb
+
+# froward and backward variable elimination
+album.model.none = glm(diagnosis~1,data = b_cancer2,family = binomial())
+album.model1 = glm(diagnosis~.,data = b_cancer2,family = binomial())
+model_both <- step(album.model.none,direction = "both", scope = list(lower=album.model.none,upper=album.model1), trace = 0)
+summary(model_both)
+
+#selectting important variables
+b_cancer <- b_cancer2 %>% dplyr::select(smoothness_worst,texture_worst,concave.points_worst,area_worst,diagnosis)
+b_cancer %>% ggplot(aes(seq(smoothness_worst),smoothness_worst)) + geom_boxplot()
+b_cancer %>% ggplot(aes(seq(texture_worst),texture_worst)) + geom_boxplot()
+b_cancer %>% ggplot(aes(seq(concave.points_worst),concave.points_worst)) + geom_boxplot()
+b_cancer %>% ggplot(aes(seq(area_worst),area_worst)) + geom_boxplot()
+summary(b_cancer)
+```
+
+**Model Assumptions: COMPLETE SEPARATION**
+
+There is complete information i.e., a full combination of variables. There is an overlap of data as seen in below plots, thus there is no problem of complete separation.
+
+```{r warning=FALSE, message=FALSE}
+#complete separation
+b_cancer %>% ggplot(aes(x=area_worst,y=diagnosis)) + geom_jitter(width = 0.1,height = 0.1,color="blue") + stat_smooth(method = "glm",color = "red", method.args = list(family=binomial),se = FALSE) + ylim(-0.5,1.5) 
+b_cancer %>% ggplot(aes(x=smoothness_worst,y=diagnosis)) + geom_jitter(width = 0.1,height = 0.1,color="blue") + stat_smooth(method = "glm",color = "red", method.args = list(family=binomial),se = FALSE) + ylim(-0.5,1.5)
+b_cancer %>% ggplot(aes(x=texture_worst,y=diagnosis)) + geom_jitter(width = 0.1,height = 0.1,color="blue") + stat_smooth(method = "glm",color = "red", method.args = list(family=binomial),se = FALSE) + ylim(-0.5,1.5)
+b_cancer %>% ggplot(aes(x=concave.points_worst,y=diagnosis)) + geom_jitter(width = 0.01,height = 0.1,color="blue") + stat_smooth(method = "glm",color = "red", method.args = list(family=binomial),se = FALSE) + ylim(-0.5,1.5)
+```
+
+**LOGISTIC REGRESSION MODEL**
+
+We perform a logistic regression analysis on 4 predictor variables to predict whether the patient’s breast cancer diagnosis result is either benign (B,0) or malignant (M,1). 
+
+```{r warning=FALSE, message=FALSE}
+#model main
+album.model <- glm(formula = diagnosis ~ texture_worst + area_worst + smoothness_worst + concave.points_worst, family = binomial(), data = b_cancer)
+summary(album.model)
+```
+```{r warning=FALSE, message=FALSE}
+#plot check
+plot(album.model)
+```
+
+**Model Assumption: MULTICOLLINEARITY**
+
+we can observe that the highest Variance Inflation Factor (VIF) is below 10, the average VIF is close to 1, and the lowest tolerance value is greater than both 0.1 (indicating a serious problem) and 0.2 (indicating a potential problem). Based on these results, we can conclude that there is no significant issue of multicollinearity within the data.
+
+```{r}
+#Assumptions
+
+#multicollinearity
+vif(album.model)
+tolerance = 1/vif(album.model)
+tolerance
+mean(vif(album.model))
+```
+
+**Model Assumption: INDEPENDENT RESIDUALS**
+
+To assess the independence of residuals, the Durbin-Watson test is employed. Looking at the values, we can observe that they are close to 2. This suggests that, at a 5% level of significance, we can accept the null hypothesis of the Durbin-Watson test, which implies that there is no autocorrelation among the residuals. Therefore, the assumption of independence is met.
+
+```{r}
+#Assumptions
+
+#independence of residuals
+durbinWatsonTest(album.model)
+```
+
+**Model Assumption: INFLUENTIAL POINTS**
+
+In order to identify influential cases, we calculated Cook's distance for the model. Upon analysis, we found that the maximum Cook's distance value was significantly less than 1. Hence, we can conclude that there are no influential cases exerting a substantial impact on the model.
+
+```{r warning=FALSE, message=FALSE}
+#Assumptions
+
+#checking influence points
+b_cancer2 <- b_cancer
+b_cancer2$cd <- cooks.distance(album.model)
+plot(sort(b_cancer2$cd , decreasing=TRUE))
+max(b_cancer2$cd)
+```
+
+**Model Assumption: OUTLIERS**
+
+To detect outliers, we examined the standardized residuals and determined their range within the 95% confidence interval. Our analysis revealed that only two residuals in the model exceeded the threshold of 1.96 standard deviations. Consequently, we did not identify any of these observations as outliers.
+
+```{r warning=FALSE, message=FALSE}
+#Assumptions
+
+# outliers residual
+b_cancer2$fitted <- album.model$fitted
+b_cancer2$residuals <- album.model$residuals
+b_cancer2$standardized.residuals <- rstandard(album.model)
+
+possible.outliers2 <- subset(b_cancer2, standardized.residuals < -1.96 | standardized.residuals > 1.96)
+possible.outliers2
+```
+
+**Model Assumption: LINEARITY**
+
+To assess the assumption of linearity, we conducted a logistic regression analysis by including interaction variables (e.g., [variable*log(variable)]) for each predictor variable. After examining the model, we determined that none of the interaction variables exhibited significance (p>0.05). Therefore, we accept the assumption that the relationship between the variables is linear.
+
+```{r warning=FALSE, message=FALSE}
+#Assumptions
+
+# Linearity check
+b_cancer2 <- b_cancer2 %>% mutate(log.smoothness_worst = log(smoothness_worst+1), log.texture_worst = log(texture_worst+1), log.concave.points_worst = log(concave.points_worst+1), log.area_worst = log(area_worst+1), inter.log.smoothness_worst = (smoothness_worst+1)*log(smoothness_worst+1), inter.log.texture_worst = (texture_worst+1)*log(texture_worst+1), inter.log.concave.points_worst = (concave.points_worst+1)*log(concave.points_worst+1), inter.log.area_worst = (area_worst+1)*log(area_worst+1))
+
+
+album.model2 <- glm(formula = diagnosis ~ texture_worst + area_worst + smoothness_worst + 
+    concave.points_worst + log.texture_worst + log.area_worst + log.smoothness_worst + 
+    log.concave.points_worst + inter.log.texture_worst + inter.log.area_worst + inter.log.smoothness_worst + 
+    inter.log.concave.points_worst , family = binomial(), data = b_cancer2)
+summary(album.model2)
+```
+
+**Analysis**
+
+After assessing all the assumptions of the logistic model, we analyzed the model results as follows:
+
+1. All four predictor variables, along with the intercept, have a significant influence on the diagnosis at a 5% level of significance. The Akaike Information Criterion (AIC) value for the model is 99.898. The intercept itself has a significant effect on the diagnosis (z = -6.753, p < 0.01) at a 5% level of significance.
+2. The odds ratio for the variable texture_worst is 1.319, indicating that the odds of being classified as "malignant" increase by 31.9% for every 1 unit increase in texture_worst. Similarly, the odds ratio for the variable area_worst is 1.014, implying that the odds of being classified as "malignant" increase by 1% for every 1 unit increase in area_worst.
+3. The odds ratios for the variables smoothness_worst and concave.points_worst are large values greater than 1, indicating that these variables have a strong effect on the diagnosis. However, interpreting the exact impact of these variables is challenging.
+
+```{r warning=FALSE, message=FALSE}
+#odds ratio and its confidence intervals
+exp(coefficients(album.model))
+exp(confint(album.model))
+```
+
+Overall, the model suggests that the selected predictor variables significantly contribute to predicting the diagnosis, with texture_worst and area_worst demonstrating a more straightforward interpretation of their effects.
+
+The model predicted “malignant” for the following test data [texture_worst = 25.55, area_worst = 1710.0, smoothness_worst = 0.1234, concave.points_worst = 0.17411]. 
+
+```{r warning=FALSE, message=FALSE}
+#prediction
+test_data = tibble(texture_worst = 25.55, area_worst = 1710.0, smoothness_worst = 0.12340,concave.points_worst = 0.174110)
+probs <- predict(album.model,newdata = test_data,type = "response")
+prediction <- ifelse(probs>0.5,"malignant","benign")
+prediction
+```
+
+**Conclusion:**
+
+We constructed a logistic regression model to examine how certain worst-class features (such as texture, area, smoothness, and concave points) affect the diagnosis of breast cancer. After verifying that all the assumptions of logistic regression were satisfied, we found that all the chosen predictor variables significantly influenced the breast cancer diagnosis.
+
+Using the developed model, we made predictions for test data with the following values: texture_worst = 25.55, area_worst = 1710.0, smoothness_worst = 0.1234, and concave.points_worst = 0.17411. Based on these predictions, the model classified the data as "malignant."
+
+From our analysis, we can conclude that the logistic regression model provides reliable predictions for breast cancer diagnosis. Furthermore, the selected predictor variables, including texture_worst, area_worst, smoothness_worst, and concave.points_worst, have a significant impact on detecting breast cancer.
